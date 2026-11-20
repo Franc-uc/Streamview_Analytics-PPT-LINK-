@@ -1,3 +1,6 @@
+🚀 [Ver Dashboard Online](https://streamview-analytics32000.streamlit.app/)
+
+
 # StreamView Analytics — Plataforma Corporativa de Visual Analytics
 
 Solución integral de **Business Intelligence y Visualización de Datos** desarrollada en **Python (Streamlit + Plotly)** para el análisis estratégico del catálogo audiovisual de **StreamView Analytics** (Asignatura **ADY1104 — Visualización de Datos**, Duoc UC).
