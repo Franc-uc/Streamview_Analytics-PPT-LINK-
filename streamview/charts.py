@@ -24,7 +24,7 @@ def _style(fig: go.Figure, title: str, height: int = 380, legend: bool = True) -
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(family=FONT, color="#E5E5E5", size=13),
         title=dict(text=title, x=0, xanchor="left", font=dict(size=16, color=C.WHITE)),
-        margin=dict(l=8, r=8, t=56, b=8),
+        margin=dict(l=48, r=20, t=60, b=44),
         height=height,
         separators=",.",
         hoverlabel=dict(bgcolor=C.BLACK_2, bordercolor=C.RED, font=dict(color=C.WHITE, size=13)),
@@ -32,8 +32,8 @@ def _style(fig: go.Figure, title: str, height: int = 380, legend: bool = True) -
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
                     bgcolor="rgba(0,0,0,0)", title_text=""),
     )
-    fig.update_xaxes(gridcolor=GRID, zeroline=False, linecolor=GRID, title_font=dict(size=12, color=C.GREY_TEXT))
-    fig.update_yaxes(gridcolor=GRID, zeroline=False, linecolor=GRID, title_font=dict(size=12, color=C.GREY_TEXT))
+    fig.update_xaxes(gridcolor=GRID, zeroline=False, linecolor=GRID, automargin=True, title_font=dict(size=12, color=C.GREY_TEXT))
+    fig.update_yaxes(gridcolor=GRID, zeroline=False, linecolor=GRID, automargin=True, title_font=dict(size=12, color=C.GREY_TEXT))
     return fig
 
 
@@ -99,16 +99,30 @@ def fig_top_titles(df: pd.DataFrame, metric: str = "popularity", n: int = 10):
     top = top.iloc[::-1].reset_index(drop=True)
     labels = [f"{str(t)[:36]} ({int(y)})" + "\u200b" * i
               for i, (t, y) in enumerate(zip(top["title"], top["release_year"]))]
-    fmt = {"popularity": ",.1f", "vote_count": ",.0f", "weighted_rating": ".2f"}[metric]
+    fmt = {"popularity": ",.1f", "vote_count": ",.0f", "weighted_rating": ".2f",
+           "revenue_clean": ",.0f", "roi": ".1f"}[metric]
+    if metric == "revenue_clean":
+        bar_text = [f"${v / 1e6:,.1f} M".replace(",", "_").replace(".", ",").replace("_", ".") for v in top["score"]]
+        text_tmpl = "%{text}"
+        hover_val = "$%{x:,.0f} USD"
+    elif metric == "roi":
+        bar_text = top["score"]
+        text_tmpl = "%{text:.1f}×"
+        hover_val = "%{x:.2f}×"
+    else:
+        bar_text = top["score"]
+        text_tmpl = f"%{{text:{fmt}}}"
+        hover_val = f"%{{x:{fmt}}}"
+
     fig = go.Figure(go.Bar(
         x=top["score"], y=labels, orientation="h",
         marker=dict(color=[_type_color(x) for x in top["type_label"]]),
-        text=top["score"], texttemplate=f"%{{text:{fmt}}}", textposition="outside", cliponaxis=False,
+        text=bar_text, texttemplate=text_tmpl, textposition="outside", cliponaxis=False,
         textfont=dict(color=C.WHITE),
         customdata=top.assign(_rating=top["rating_clean"].fillna(0))[
             ["type_label", "vote_count", "_rating"]].to_numpy(dtype=object),
-        hovertemplate=("<b>%{y}</b><br>%{customdata[0]}<br>" + M.RANK_METRICS[metric] +
-                       f": %{{x:{fmt}}}<br>Votos: %{{customdata[1]:,.0f}}<br>"
+        hovertemplate=("<b>%{y}</b><br>%{customdata[0]}<br>" + M.ALL_RANK_METRICS[metric] +
+                       f": {hover_val}<br>Votos: %{{customdata[1]:,.0f}}<br>"
                        "Valoración: %{customdata[2]:.1f}<extra></extra>"),
     ))
     note = ""
@@ -117,11 +131,12 @@ def fig_top_titles(df: pd.DataFrame, metric: str = "popularity", n: int = 10):
         fig.update_xaxes(range=[low, top["score"].max() * 1.04])
         note = f" (eje desde {low:g})"
     else:
-        fig.update_xaxes(range=[0, top["score"].max() * 1.15])
+        pad = 1.24 if metric == "revenue_clean" else 1.16
+        fig.update_xaxes(range=[0, top["score"].max() * pad])
     fig.update_layout(bargap=0.3)
     fig.update_yaxes(title="", automargin=True)
-    fig.update_xaxes(title=M.RANK_METRICS[metric])
-    return _style(fig, f"Top {len(top)} por {M.RANK_METRICS[metric].lower()}{note}", height=440, legend=False)
+    fig.update_xaxes(title=M.ALL_RANK_METRICS[metric])
+    return _style(fig, f"Top {len(top)} por {M.ALL_RANK_METRICS[metric].lower()}{note}", height=440, legend=False)
 
 
 def fig_popularity_box(df: pd.DataFrame):
@@ -151,6 +166,60 @@ def fig_genre_popularity(df: pd.DataFrame, n: int = 8):
     fig.update_xaxes(title="Popularidad mediana")
     fig.update_yaxes(title="")
     return _style(fig, "Popularidad mediana por género y tipo", height=420)
+
+
+# --- Geography & Talent analytics -------------------------------------------
+def fig_top_countries(df: pd.DataFrame, n: int = 10):
+    tc = M.top_countries(df, n)
+    if tc.empty:
+        return None
+    top = tc.groupby("country")["titles"].sum().nlargest(n)
+    tc = tc[tc["country"].isin(top.index)]
+    fig = px.bar(tc, x="titles", y="country", color="type_label", orientation="h",
+                 color_discrete_map=C.TYPE_COLORS,
+                 category_orders={"country": top.index[::-1].tolist(), "type_label": TYPE_ORDER})
+    fig.update_traces(hovertemplate="<b>%{y}</b><br>%{fullData.name}: %{x:,.0f} títulos<extra></extra>",
+                      marker_line_width=0)
+    fig.update_layout(barmode="stack", bargap=0.28)
+    fig.update_xaxes(title="Títulos")
+    fig.update_yaxes(title="")
+    return _style(fig, f"Top {len(top)} países productores", height=400)
+
+
+def fig_top_languages(df: pd.DataFrame, n: int = 10):
+    tl = M.top_languages(df, n)
+    if tl.empty:
+        return None
+    top = tl.groupby("lang_label")["titles"].sum().nlargest(n)
+    tl = tl[tl["lang_label"].isin(top.index)]
+    fig = px.bar(tl, x="titles", y="lang_label", color="type_label", orientation="h",
+                 color_discrete_map=C.TYPE_COLORS,
+                 category_orders={"lang_label": top.index[::-1].tolist(), "type_label": TYPE_ORDER})
+    fig.update_traces(hovertemplate="<b>%{y}</b><br>%{fullData.name}: %{x:,.0f} títulos<extra></extra>",
+                      marker_line_width=0)
+    fig.update_layout(barmode="stack", bargap=0.28)
+    fig.update_xaxes(title="Títulos")
+    fig.update_yaxes(title="")
+    return _style(fig, f"Top {len(top)} idiomas originales", height=400)
+
+
+def fig_top_people(df: pd.DataFrame, col: str = "director", n: int = 10):
+    tp = M.top_people(df, col, n)
+    if tp.empty:
+        return None
+    tp = tp.iloc[::-1]
+    label = "directores" if col == "director" else "actores/actrices"
+    fig = go.Figure(go.Bar(
+        x=tp["titles"], y=tp["name"], orientation="h",
+        marker_color=C.RED if col == "director" else C.CYAN,
+        text=tp["titles"], texttemplate="%{text:,.0f}", textposition="outside",
+        cliponaxis=False, textfont=dict(color=C.WHITE),
+        hovertemplate="<b>%{y}</b><br>%{x:,.0f} títulos<extra></extra>",
+    ))
+    fig.update_xaxes(title="Títulos en catálogo", range=[0, tp["titles"].max() * 1.15])
+    fig.update_yaxes(title="")
+    fig.update_layout(bargap=0.3)
+    return _style(fig, f"Top {len(tp)} {label} con mayor presencia", height=380, legend=False)
 
 
 # --- Temporal analytics -----------------------------------------------------
@@ -206,7 +275,7 @@ def fig_month_heatmap(df: pd.DataFrame):
         hovertemplate="<b>%{y} · %{x}</b><br>%{z:,.0f} títulos<extra></extra>",
     ))
     fig.update_yaxes(autorange="reversed", type="category")
-    return _style(fig, "Estacionalidad: títulos por año y mes de `date_added`",
+    return _style(fig, "Estacionalidad de estrenos por año y mes (fecha de lanzamiento)",
                   height=max(360, 40 * len(matrix) + 110), legend=False)
 
 
@@ -279,10 +348,85 @@ def fig_corr_heatmap(corr: pd.DataFrame | None):
         return None
     fig = go.Figure(go.Heatmap(
         z=corr.values, x=corr.columns.tolist(), y=corr.index.tolist(), zmin=-1, zmax=1,
-        colorscale=[[0, "#B8B8B8"], [0.5, C.BLACK_2], [1, C.RED]], xgap=3, ygap=3,
+        colorscale=[[0, C.CYAN], [0.5, C.BLACK_2], [1, C.RED]], xgap=3, ygap=3,
         texttemplate="%{z:.2f}", textfont=dict(color=C.WHITE),
         colorbar=dict(title="ρ", thickness=10),
         hovertemplate="<b>%{y} × %{x}</b><br>Correlación de Spearman: %{z:.2f}<extra></extra>",
     ))
     fig.update_yaxes(autorange="reversed")
     return _style(fig, "Correlación entre variables (Spearman)", height=420, legend=False)
+
+
+# --- Financial analytics (Películas) ----------------------------------------
+def fig_budget_vs_revenue(df: pd.DataFrame):
+    m = df[(df["type_label"] == C.MOVIE) & df["budget_clean"].notna() & df["revenue_clean"].notna()]
+    if m.empty:
+        return None
+    fig = px.scatter(m, x="budget_clean", y="revenue_clean", color="rating_clean",
+                     log_x=True, log_y=True, opacity=0.65, color_continuous_scale="Plasma",
+                     custom_data=["title", "release_year", "roi"])
+    fig.update_traces(
+        marker=dict(size=6),
+        hovertemplate=("<b>%{customdata[0]}</b> (%{customdata[1]})<br>"
+                       "Presupuesto: $%{x:,.0f}<br>Ingresos: $%{y:,.0f}<br>"
+                       "ROI: %{customdata[2]:.2f}×<extra></extra>")
+    )
+    lo = max(1e4, float(min(m["budget_clean"].min(), m["revenue_clean"].min())))
+    hi = float(max(m["budget_clean"].max(), m["revenue_clean"].max()))
+    fig.add_trace(go.Scatter(
+        x=[lo, hi], y=[lo, hi], mode="lines", name="Equilibrio (ROI = 1,0×)",
+        line=dict(color=C.RED, dash="dash", width=2),
+        hovertemplate="Punto de equilibrio (ROI = 1,0×)<extra></extra>",
+    ))
+    fig.update_layout(coloraxis_colorbar=dict(title="Nota", thickness=10, len=0.7))
+    fig.update_xaxes(title="Presupuesto USD (escala log)")
+    fig.update_yaxes(title="Ingresos USD (escala log)")
+    return _style(fig, "Relación Presupuesto vs. Ingresos (Películas)", height=440, legend=True)
+
+
+def fig_genre_roi(df: pd.DataFrame, n: int = 10):
+    gr = M.genre_roi_table(df, n)
+    if gr.empty:
+        return None
+    gr = gr.iloc[::-1]
+    fig = go.Figure(go.Bar(
+        x=gr["median_roi"], y=gr["genre"], orientation="h",
+        marker_color="#10B981", text=gr["median_roi"], texttemplate="%{text:.2f}×",
+        textposition="outside", cliponaxis=False, textfont=dict(color=C.WHITE),
+        customdata=gr["titles"],
+        hovertemplate="<b>%{y}</b><br>ROI mediano: %{x:.2f}×<br>Películas con datos: %{customdata:,.0f}<extra></extra>",
+    ))
+    fig.add_vline(x=1.0, line_dash="dash", line_color=C.RED, opacity=0.8)
+    fig.update_xaxes(title="ROI mediano (Ingresos / Presupuesto)", range=[0, gr["median_roi"].max() * 1.18])
+    fig.update_yaxes(title="")
+    fig.update_layout(bargap=0.3)
+    return _style(fig, f"Top {len(gr)} géneros por rentabilidad mediana (ROI)", height=440, legend=False)
+
+
+def fig_country_quality(df: pd.DataFrame, metric: str = "rating_mean", n: int = 10, min_titles: int = 100):
+    cq = M.country_quality_table(df, metric=metric, n=n, min_titles=min_titles)
+    if cq.empty:
+        return None
+    cq = cq.iloc[::-1]
+    is_rating = (metric == "rating_mean")
+    label = "Valoración media (0–10)" if is_rating else "Popularidad mediana (TMDB)"
+    tmpl = "%{text:.2f}" if is_rating else "%{text:,.1f}"
+    hfmt = "%{x:.2f}" if is_rating else "%{x:,.1f}"
+    fig = go.Figure(go.Bar(
+        x=cq[metric], y=cq["country"], orientation="h",
+        marker_color=C.CYAN if is_rating else C.RED,
+        text=cq[metric], texttemplate=tmpl, textposition="outside",
+        cliponaxis=False, textfont=dict(color=C.WHITE),
+        customdata=cq["titles"],
+        hovertemplate=f"<b>%{{y}}</b><br>{label}: {hfmt}<br>Títulos: %{{customdata:,.0f}}<extra></extra>",
+    ))
+    if is_rating:
+        low = max(0, math.floor(cq[metric].min() * 2 - 1) / 2)
+        fig.update_xaxes(title=label, range=[low, min(10, cq[metric].max() * 1.08)])
+        title_txt = f"Top {len(cq)} países por valoración media (eje desde {low:g})"
+    else:
+        fig.update_xaxes(title=label, range=[0, cq[metric].max() * 1.18])
+        title_txt = f"Top {len(cq)} países por popularidad mediana"
+    fig.update_yaxes(title="")
+    fig.update_layout(bargap=0.3)
+    return _style(fig, title_txt, height=400, legend=False)

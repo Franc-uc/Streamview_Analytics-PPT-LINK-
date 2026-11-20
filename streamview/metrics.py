@@ -13,6 +13,13 @@ RANK_METRICS = {
     "weighted_rating": "Valoración ponderada",
 }
 
+FIN_RANK_METRICS = {
+    "revenue_clean": "Ingresos de taquilla (USD)",
+    "roi": "Retorno sobre inversión (ROI ×)",
+}
+
+ALL_RANK_METRICS = {**RANK_METRICS, **FIN_RANK_METRICS}
+
 CORR_LABELS = {
     "popularity": "Popularidad",
     "vote_count": "Votos",
@@ -70,7 +77,13 @@ def rank_titles(df: pd.DataFrame, metric: str = "popularity", n: int = 10) -> pd
     """Top-n títulos por métrica; añade la columna `score`."""
     if df.empty:
         return df.head(0).assign(score=pd.Series(dtype=float))
-    score = weighted_rating(df) if metric == "weighted_rating" else df[metric]
+    if metric == "weighted_rating":
+        score = weighted_rating(df)
+    elif metric == "roi":
+        # Para ROI exigimos presupuesto >= $1M para evitar distorsiones de micro-presupuestos
+        score = df["roi"].where(df["budget_clean"] >= 1_000_000)
+    else:
+        score = df[metric]
     ranked = df.assign(score=score).dropna(subset=["score"])
     return ranked.nlargest(n, "score")
 
@@ -200,20 +213,20 @@ def build_insights(df: pd.DataFrame) -> list[dict]:
     if not genres.empty:
         by_genre = genres.groupby("genre")["titles"].sum().sort_values(ascending=False)
         share = safe_div(by_genre.iloc[0], len(df), 0) * 100
-        items.append({"icon": "🎭", "title": "Género dominante",
+        items.append({"title": "Género dominante",
                       "text": f"{by_genre.index[0]} aparece en el {fmt_float(share)}% de los títulos."})
 
     top = rank_titles(df, "popularity", 1)
     if not top.empty:
         row = top.iloc[0]
-        items.append({"icon": "🔥", "title": "Título más popular",
+        items.append({"title": "Título más popular",
                       "text": f"{row['title']} ({row['type_label'].lower()}, {int(row['release_year'])}) "
                               f"con popularidad {fmt_float(row['popularity'])}."})
 
     most_voted = rank_titles(df, "vote_count", 1)
     if not most_voted.empty and most_voted.iloc[0]["vote_count"] > 0:
         row = most_voted.iloc[0]
-        items.append({"icon": "🗳️", "title": "Título con más votos",
+        items.append({"title": "Título con más votos",
                       "text": f"{row['title']} acumula {fmt_int(row['vote_count'])} votos."})
 
     summary = type_summary(df)
@@ -222,12 +235,12 @@ def build_insights(df: pd.DataFrame) -> list[dict]:
         series_med = summary.loc[C.SERIES, "Popularidad mediana"]
         ratio = safe_div(series_med, movie_med)
         if ratio:
-            items.append({"icon": "⚖️", "title": "Películas frente a series",
+            items.append({"title": "Películas frente a series",
                           "text": f"La popularidad mediana de las series ({fmt_float(series_med)}) es "
                                   f"{fmt_float(ratio)}× la de las películas ({fmt_float(movie_med)})."})
 
     no_votes = safe_div((~df["has_votes"]).sum(), len(df), 0) * 100
-    items.append({"icon": "📭", "title": "Títulos sin votos",
+    items.append({"title": "Títulos sin votos",
                   "text": f"El {fmt_float(no_votes)}% de la selección no tiene ningún voto."})
     return items[:4]
 
@@ -277,3 +290,81 @@ def balanced_yearly_size(df: pd.DataFrame):
         return None
     sizes = df.groupby(["type_label", "release_year"]).size()
     return int(sizes.iloc[0]) if len(sizes) > 1 and sizes.nunique() == 1 else None
+
+
+# --- Geografía, Idiomas y Talento (Secciones 16 y 26 del Caso) --------------
+def top_countries(df: pd.DataFrame, n: int = 10) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(columns=["country", "type_label", "titles"])
+    ex = df[["uid", "type_label", "country_list"]].explode("country_list").rename(columns={"country_list": "country"})
+    ex = ex[ex["country"].notna() & (ex["country"] != "")]
+    return ex.groupby(["country", "type_label"]).size().rename("titles").reset_index()
+
+
+def top_languages(df: pd.DataFrame, n: int = 10) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(columns=["lang_label", "type_label", "titles"])
+    ex = df[df["language"].notna() & (df["language"] != "")].copy()
+    ex["lang_label"] = ex["language"].map(lambda x: C.LANG_NAMES.get(x, x))
+    return ex.groupby(["lang_label", "type_label"]).size().rename("titles").reset_index()
+
+
+def top_people(df: pd.DataFrame, col: str = "director", n: int = 10) -> pd.DataFrame:
+    if df.empty or col not in df.columns:
+        return pd.DataFrame(columns=["name", "titles"])
+    s = df[col].dropna().astype(str).str.split(",").explode().str.strip()
+    s = s[(s != "") & (s != "nan")]
+    return s.value_counts().head(n).rename_axis("name").reset_index(name="titles")
+
+
+# --- Finanzas y ROI (Solo Películas, Reglas de Negocio 3 y 6) ---------------
+def financial_kpis(df: pd.DataFrame) -> dict:
+    movies = df[df["type_label"] == C.MOVIE]
+    with_b = movies[movies["budget_clean"].notna()]
+    with_r = movies[movies["revenue_clean"].notna()]
+    both = movies[movies["budget_clean"].notna() & movies["revenue_clean"].notna()]
+    tot_b = float(with_b["budget_clean"].sum()) if not with_b.empty else 0.0
+    tot_r = float(with_r["revenue_clean"].sum()) if not with_r.empty else 0.0
+    roi_global = safe_div(both["revenue_clean"].sum(), both["budget_clean"].sum()) if not both.empty else None
+    return {
+        "count_fin": len(both),
+        "avg_budget": float(with_b["budget_clean"].mean()) if not with_b.empty else None,
+        "total_budget": tot_b,
+        "total_revenue": tot_r,
+        "global_roi": roi_global,
+        "median_roi": float(both["roi"].median()) if not both.empty else None,
+    }
+
+
+def genre_roi_table(df: pd.DataFrame, n: int = 10) -> pd.DataFrame:
+    movies = df[(df["type_label"] == C.MOVIE) & (df["budget_clean"] >= 100_000) & df["roi"].notna()]
+    if movies.empty:
+        return pd.DataFrame(columns=["genre", "median_roi", "titles"])
+    ex = movies[["uid", "genres_list", "roi"]].explode("genres_list").rename(columns={"genres_list": "genre"})
+    ex = ex[ex["genre"].notna() & (ex["genre"] != "")]
+    grouped = ex.groupby("genre").agg(median_roi=("roi", "median"), titles=("uid", "size")).reset_index()
+    grouped = grouped[grouped["titles"] >= 20]
+    return grouped.nlargest(n, "median_roi")
+
+
+def country_quality_table(df: pd.DataFrame, metric: str = "rating_mean", n: int = 10, min_titles: int = 30) -> pd.DataFrame:
+    """Ranking de países por valoración media o popularidad mediana con umbral mínimo de títulos."""
+    if df.empty:
+        return pd.DataFrame(columns=["country", "titles", "rating_mean", "pop_med"])
+    ex = df[["uid", "country_list", "rating_clean", "popularity"]].explode("country_list").rename(
+        columns={"country_list": "country"}
+    )
+    ex = ex[ex["country"].notna() & (ex["country"] != "")]
+    if ex.empty:
+        return pd.DataFrame(columns=["country", "titles", "rating_mean", "pop_med"])
+    grouped = ex.groupby("country").agg(
+        titles=("uid", "size"),
+        rating_mean=("rating_clean", "mean"),
+        pop_med=("popularity", "median"),
+    ).reset_index()
+    filtered = grouped[grouped["titles"] >= min_titles]
+    if filtered.empty:
+        filtered = grouped[grouped["titles"] >= 5]
+    if filtered.empty:
+        filtered = grouped
+    return filtered.dropna(subset=[metric]).nlargest(n, metric)

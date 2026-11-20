@@ -34,14 +34,16 @@ def fmt_float(value, decimals: int = 1) -> str:
     if is_missing(value):
         return "—"
     text = f"{float(value):,.{decimals}f}"
-    return text.replace(",", "§").replace(".", ",").replace("§", ".")
+    return text.replace(",", "_").replace(".", ",").replace("_", ".")
 
 
 def fmt_compact(value) -> str:
-    """Formato compacto: 11.500.000 -> '11,5 M'; 12.300 -> '12,3 K'."""
+    """Formato compacto en español: 391.400.000.000 -> '391,4 mil M'; 11.500.000 -> '11,5 M'."""
     if is_missing(value):
         return "—"
     value = float(value)
+    if abs(value) >= 1e9:
+        return f"{value / 1e9:.1f} mil M".replace(".", ",")
     if abs(value) >= 1e6:
         return f"{value / 1e6:.1f} M".replace(".", ",")
     if abs(value) >= 1e3:

@@ -1,4 +1,4 @@
-"""Las seis secciones del dashboard. Cada `render_*` recibe el DataFrame ya filtrado."""
+"""Las ocho secciones del dashboard. Cada `render_*` recibe el DataFrame ya filtrado."""
 from __future__ import annotations
 
 import pandas as pd
@@ -8,14 +8,17 @@ from . import charts as G
 from . import components as UI
 from . import config as C
 from . import metrics as M
-from .utils import fmt_float, fmt_int
+from .utils import fmt_compact, fmt_float, fmt_int
 
 NO_DATA = "Ajusta los filtros de la barra lateral o pulsa «Restablecer filtros»."
 
 
 # --- 1. Overview ------------------------------------------------------------
 def render_overview(df: pd.DataFrame, full_df: pd.DataFrame) -> None:
-    UI.section_header("Overview", "Resumen ejecutivo de la selección actual")
+    UI.section_header(
+        "Overview",
+        "Resumen ejecutivo del catálogo audiovisual (métricas TMDB; sin telemetría interna de usuarios)",
+    )
     if df.empty:
         UI.empty_state(NO_DATA)
     else:
@@ -73,7 +76,53 @@ def render_content(df: pd.DataFrame) -> None:
         UI.show_chart(G.fig_genre_popularity(df), "ct_genre_pop")
 
 
-# --- 3. Temporal analytics --------------------------------------------------
+# --- 3. Geography & Talent --------------------------------------------------
+def render_geography(df: pd.DataFrame) -> None:
+    UI.section_header(
+        "Geography & Talent",
+        "Distribución por países productores, valoración por mercado, idiomas originales, directores y reparto",
+    )
+    if df.empty:
+        return UI.empty_state(NO_DATA)
+
+    n_countries = df["country_list"].explode().dropna().nunique()
+    n_langs = df["language"].dropna().nunique()
+    dirs_series = df["director"].dropna().astype(str).str.split(",").explode().str.strip()
+    n_dirs = dirs_series[dirs_series != ""].nunique()
+    stats = [
+        ("Países representados", fmt_int(n_countries), "Mercados productores en la selección", "GEO"),
+        ("Idiomas originales", fmt_int(n_langs), "Diversidad lingüística del catálogo", "IDIOMA"),
+        ("Directores únicos", fmt_int(n_dirs), "Talento de dirección identificado", "TALENTO"),
+    ]
+    UI.render_stat_grid(stats)
+    UI.gap()
+
+    left, right = st.columns(2)
+    with left, UI.card("geo_countries"):
+        UI.show_chart(G.fig_top_countries(df, 10), "geo_countries")
+    with right, UI.card("geo_langs"):
+        UI.show_chart(G.fig_top_languages(df, 10), "geo_langs")
+
+    UI.gap()
+    with UI.card("geo_quality"):
+        q_metric = st.radio(
+            "Desempeño por país productor (mín. 100 títulos en catálogo completo)",
+            ["rating_mean", "pop_med"],
+            format_func={"rating_mean": "Valoración media (0–10)", "pop_med": "Popularidad mediana (TMDB)"}.get,
+            horizontal=True,
+            key="geo_quality_metric",
+        )
+        UI.show_chart(G.fig_country_quality(df, metric=q_metric, n=10, min_titles=100), "geo_quality")
+
+    UI.gap()
+    left, right = st.columns(2)
+    with left, UI.card("geo_directors"):
+        UI.show_chart(G.fig_top_people(df, "director", 10), "geo_directors", "Sin datos de dirección.")
+    with right, UI.card("geo_cast"):
+        UI.show_chart(G.fig_top_people(df, "cast", 10), "geo_cast", "Sin datos de reparto.")
+
+
+# --- 4. Temporal analytics --------------------------------------------------
 def render_temporal(df: pd.DataFrame, full_df: pd.DataFrame) -> None:
     UI.section_header("Temporal Analytics", "Evolución del catálogo por año de lanzamiento")
     if df.empty:
@@ -102,10 +151,10 @@ def render_temporal(df: pd.DataFrame, full_df: pd.DataFrame) -> None:
 
     UI.gap()
     with UI.card("tp_heat"):
-        UI.show_chart(G.fig_month_heatmap(df), "tp_heat", "No hay fechas `date_added` válidas.")
+        UI.show_chart(G.fig_month_heatmap(df), "tp_heat", "No hay fechas de lanzamiento válidas.")
 
 
-# --- 4. Engagement analytics ------------------------------------------------
+# --- 5. Engagement analytics ------------------------------------------------
 def _spearman(df: pd.DataFrame, a: str, b: str):
     sub = df[[a, b]].dropna()
     sub = sub[(sub[a] > 0) & (sub[b] > 0)]
@@ -115,8 +164,10 @@ def _spearman(df: pd.DataFrame, a: str, b: str):
 
 
 def render_engagement(df: pd.DataFrame) -> None:
-    UI.section_header("Engagement Analytics",
-                      "Popularidad, votos y valoraciones. Los votos no son espectadores ni visualizaciones")
+    UI.section_header(
+        "Engagement Analytics",
+        "Recepción pública (popularidad, votos y valoraciones TMDB). No mide reproducciones ni retención de usuarios",
+    )
     if df.empty:
         return UI.empty_state(NO_DATA)
 
@@ -127,14 +178,18 @@ def render_engagement(df: pd.DataFrame) -> None:
                    "más una muestra aleatoria).")
     with right:
         overall = _spearman(df, "popularity", "vote_count")
-        stats = [("🔗", "Correlación popularidad–votos", fmt_float(overall, 2) if overall is not None else "—",
-                  "Spearman, todos los tipos")]
+        stats = [("Correlación popularidad–votos", fmt_float(overall, 2) if overall is not None else "—",
+                  "Spearman, todos los tipos", "GLOBAL")]
         for label in (C.MOVIE, C.SERIES):
             value = _spearman(df[df["type_label"] == label], "popularity", "vote_count")
             if value is not None:
-                stats.append(("🎬" if label == C.MOVIE else "📺", f"{C.TYPE_PLURAL[label]}", fmt_float(value, 2),
-                              "Spearman popularidad–votos"))
+                stats.append((f"{C.TYPE_PLURAL[label]}", fmt_float(value, 2),
+                              "Spearman popularidad–votos", "CINE" if label == C.MOVIE else "TV"))
         UI.render_stat_grid(stats)
+        if overall is not None and overall < 0:
+            UI.note("Paradoja de Simpson detectada: al mezclar películas y series, la correlación global es negativa "
+                    "aunque por separado ambas son positivas. Esto confirma la Regla de Negocio 2: las escalas de "
+                    "popularidad de películas y series no deben compararse de forma agregada.")
         UI.gap()
         with UI.card("en_table"):
             st.markdown("**Películas frente a series**")
@@ -161,12 +216,53 @@ def render_engagement(df: pd.DataFrame) -> None:
         UI.show_chart(G.fig_corr_heatmap(M.corr_matrix(part, columns)), "en_corr",
                       "No hay suficientes datos para calcular correlaciones.")
     with right, UI.card("en_rank"):
-        metric = st.radio("Engagement medido por", ["vote_count", "weighted_rating"],
+        metric = st.radio("Recepción pública medida por", ["vote_count", "weighted_rating"],
                           format_func=M.RANK_METRICS.get, horizontal=True, key="engagement_metric")
         UI.show_chart(G.fig_top_titles(df, metric), "en_rank")
 
 
-# --- 5. Content explorer ----------------------------------------------------
+# --- 6. Financial analytics (Películas) -------------------------------------
+def render_financial(df: pd.DataFrame) -> None:
+    UI.section_header("Financial Analytics",
+                      "Presupuesto, recaudación y retorno sobre inversión (ROI) en el catálogo de películas")
+    movies = df[df["type_label"] == C.MOVIE]
+    if movies.empty:
+        return UI.empty_state("Las variables financieras (presupuesto e ingresos) están disponibles "
+                              "exclusivamente para Películas (Regla de Negocio 3). Activa «Película» en el filtro lateral.")
+
+    fk = M.financial_kpis(df)
+    UI.note("Conforme a las Reglas de Negocio 3, 6 y 9, los indicadores financieros se calculan únicamente sobre "
+            "las películas con registros válidos de presupuesto e ingresos (> 0 USD).")
+
+    stats = [
+        ("Películas con datos financieros", fmt_int(fk["count_fin"]), "Con presupuesto e ingresos > 0", "MUESTRA"),
+        ("Presupuesto promedio", f"${fmt_compact(fk['avg_budget'])}" if fk["avg_budget"] else "—",
+         f"Total: ${fmt_compact(fk['total_budget'])}", "COSTO"),
+        ("Ingresos totales (Taquilla)", f"${fmt_compact(fk['total_revenue'])}", "Recaudación acumulada", "TAQUILLA"),
+        ("ROI global de cartera", f"{fmt_float(fk['global_roi'], 2)}×" if fk["global_roi"] else "—",
+         f"ROI mediano: {fmt_float(fk['median_roi'], 2)}× por película", "RETORNO"),
+    ]
+    UI.render_stat_grid(stats)
+    UI.gap()
+
+    left, right = st.columns([1.3, 1])
+    with left, UI.card("fin_scatter"):
+        UI.show_chart(G.fig_budget_vs_revenue(df), "fin_scatter", "Sin datos financieros en la selección.")
+    with right, UI.card("fin_genre_roi"):
+        UI.show_chart(G.fig_genre_roi(df, 10), "fin_genre_roi", "Sin suficientes películas por género para calcular ROI.")
+
+    UI.gap()
+    with UI.card("fin_rank"):
+        fin_metric = st.radio("Ordenar ranking financiero de películas por",
+                              ["revenue_clean", "roi"],
+                              format_func=M.FIN_RANK_METRICS.get, horizontal=True, key="fin_rank_metric")
+        if fin_metric == "roi":
+            UI.note("Para el ranking de ROI se consideran películas con presupuesto ≥ $1,0 M USD, "
+                    "evitando distorsiones por registros con micro-presupuestos.")
+        UI.show_chart(G.fig_top_titles(movies, fin_metric, 10), "fin_rank")
+
+
+# --- 7. Content explorer ----------------------------------------------------
 _TABLE_COLUMNS = {
     "title": "Título", "type_label": "Tipo", "release_year": "Año", "genres": "Géneros", "country": "País",
     "language": "Idioma", "popularity": "Popularidad", "vote_count": "Votos", "rating_clean": "Valoración",
@@ -235,7 +331,7 @@ def render_explorer(df: pd.DataFrame) -> None:
             UI.render_feature(row, "popularity", "Popularidad", "Título seleccionado")
 
 
-# --- 6. Top content ---------------------------------------------------------
+# --- 8. Top content ---------------------------------------------------------
 def render_top(df: pd.DataFrame) -> None:
     UI.section_header("Top Content", "Los títulos que lideran la selección actual")
     if df.empty:

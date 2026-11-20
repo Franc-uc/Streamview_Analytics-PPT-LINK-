@@ -1,8 +1,11 @@
 """StreamView Analytics: punto de entrada. Ejecutar con `streamlit run app.py`."""
 import streamlit as st
 
-st.set_page_config(page_title="StreamView Analytics", page_icon="🎬", layout="wide",
-                   initial_sidebar_state="expanded")
+st.set_page_config(
+    page_title="StreamView Analytics",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 from streamview import components as UI  # noqa: E402  (set_page_config debe ir primero)
 from streamview import data, filters, sections  # noqa: E402
@@ -36,8 +39,10 @@ def main() -> None:
     renderers = {
         "Overview": lambda: sections.render_overview(df, full_df),
         "Content Analytics": lambda: sections.render_content(df),
+        "Geography & Talent": lambda: sections.render_geography(df),
         "Temporal Analytics": lambda: sections.render_temporal(df, full_df),
         "Engagement Analytics": lambda: sections.render_engagement(df),
+        "Financial Analytics": lambda: sections.render_financial(df),
         "Content Explorer": lambda: sections.render_explorer(df),
         "Top Content": lambda: sections.render_top(df),
     }

@@ -90,7 +90,7 @@ header[data-testid="stHeader"] { background: transparent; }
 .sv-kpi:hover { transform: translateY(-3px); border-color: rgba(229,9,20,0.6); box-shadow: 0 14px 34px rgba(229,9,20,0.14); }
 .sv-kpi .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .sv-kpi .label { color: var(--grey); font-size: 0.84rem; font-weight: 500; }
-.sv-kpi .icon { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; font-size: 1.15rem; background: rgba(229,9,20,0.14); }
+.sv-kpi .ktag { padding: 3px 8px; border-radius: 6px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; color: #F8D7DA; background: rgba(229,9,20,0.18); border: 1px solid rgba(229,9,20,0.35); }
 .sv-kpi .value { margin-top: 10px; font-family: var(--display); font-size: 2.5rem; letter-spacing: 0.03em; line-height: 1.05; color: var(--white); overflow-wrap: anywhere; }
 .sv-kpi .sub { margin-top: 4px; font-size: 0.8rem; color: var(--grey); }
 .sv-kpi .delta { margin-top: 8px; font-size: 0.8rem; font-weight: 600; }
@@ -99,7 +99,7 @@ header[data-testid="stHeader"] { background: transparent; }
 
 /* ---------- Insights ---------- */
 .sv-insights { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
-.sv-insight { display: flex; gap: 12px; padding: 14px 16px; border-radius: 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--line); }
+.sv-insight { display: flex; gap: 12px; padding: 14px 16px; border-radius: 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-left: 3px solid var(--red); }
 .sv-insight .ico { font-size: 1.4rem; }
 .sv-insight b { display: block; font-size: 0.86rem; color: var(--white); margin-bottom: 2px; }
 .sv-insight span { font-size: 0.84rem; color: #BDBDBD; }

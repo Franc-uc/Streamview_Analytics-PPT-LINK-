@@ -64,7 +64,7 @@ def render_header(full_df: pd.DataFrame) -> None:
     <div class="sv-hero">
       <div>
         <div class="sv-logo"><span class="brand">STREAMVIEW</span><span class="product">ANALYTICS</span></div>
-        <div class="tagline">{esc(C.APP_SUBTITLE)}: géneros, popularidad, valoraciones y patrones de lanzamiento.</div>
+        <div class="tagline">{esc(C.APP_SUBTITLE)}: géneros, geografía, popularidad, valoraciones y rentabilidad cinematográfica.</div>
       </div>
       <div class="side">
         <span class="sv-badge"><span class="dot"></span>Business Intelligence Platform</span>
@@ -92,7 +92,7 @@ def sidebar_count(filtered: int, total: int) -> None:
 
 
 # --- KPIs -------------------------------------------------------------------
-def _kpi(icon: str, label: str, value: str, sub: str = "", delta=None) -> str:
+def _kpi(label: str, value: str, sub: str = "", delta=None, tag: str = "") -> str:
     delta_html = ""
     if delta is not None:
         pct, ref = delta
@@ -100,30 +100,37 @@ def _kpi(icon: str, label: str, value: str, sub: str = "", delta=None) -> str:
         arrow = "▲" if pct >= 0 else "▼"
         delta_html = f'<div class="delta {css}">{arrow} {fmt_pct(pct, 1, signed=True)} <span>{esc(ref)}</span></div>'
     sub_html = f'<div class="sub">{esc(sub)}</div>' if sub else ""
+    tag_html = f'<span class="ktag">{esc(tag)}</span>' if tag else ""
     return (f'<div class="sv-kpi"><div class="top"><span class="label">{esc(label)}</span>'
-            f'<span class="icon">{icon}</span></div><div class="value">{esc(value)}</div>{sub_html}{delta_html}</div>')
+            f'{tag_html}</div><div class="value">{esc(value)}</div>{sub_html}{delta_html}</div>')
 
 
 def render_kpis(k: dict, total_full: int) -> None:
     share_of_catalog = (safe_div(k["total"], total_full, 0) or 0) * 100
     top_genre = k["top_genre"]
     cards = [
-        _kpi("🎞️", "Total de títulos", fmt_int(k["total"]), f"{fmt_pct(share_of_catalog)} del catálogo completo"),
-        _kpi("🎬", "Películas", fmt_int(k["movies"]), f"{fmt_pct(k['movies_share'])} de la selección"),
-        _kpi("📺", "Series", fmt_int(k["series"]), f"{fmt_pct(k['series_share'])} de la selección"),
-        _kpi("⭐", "Popularidad media", fmt_float(k["avg_popularity"]), "Métrica de popularidad del dataset",
-             k["popularity_delta"]),
-        _kpi("🗳️", "Total de votos", fmt_compact(k["total_votes"]), f"{fmt_int(k['total_votes'])} votos registrados",
-             k["votes_delta"]),
-        _kpi("🎭", "Género más frecuente", top_genre[0] if top_genre else "—",
-             f"{fmt_int(top_genre[1])} títulos ({fmt_pct(top_genre[2])})" if top_genre else "Sin datos"),
+        _kpi("Total de títulos", fmt_int(k["total"]), f"{fmt_pct(share_of_catalog)} del catálogo completo", tag="CATÁLOGO"),
+        _kpi("Películas", fmt_int(k["movies"]), f"{fmt_pct(k['movies_share'])} de la selección", tag="CINE"),
+        _kpi("Series", fmt_int(k["series"]), f"{fmt_pct(k['series_share'])} de la selección", tag="TV"),
+        _kpi("Popularidad media", fmt_float(k["avg_popularity"]), "Índice TMDB del dataset", k["popularity_delta"], tag="TMDB"),
+        _kpi("Total de votos", fmt_compact(k["total_votes"]), f"{fmt_int(k['total_votes'])} votos registrados", k["votes_delta"], tag="VOTOS"),
+        _kpi("Género más frecuente", top_genre[0] if top_genre else "—",
+             f"{fmt_int(top_genre[1])} títulos ({fmt_pct(top_genre[2])})" if top_genre else "Sin datos", tag="TOP"),
     ]
     st.markdown(f'<div class="sv-kpis">{"".join(cards)}</div>', unsafe_allow_html=True)
 
 
 def render_stat_grid(items: list[tuple]) -> None:
-    """Tarjetas sueltas: cada item es (icono, etiqueta, valor, subtítulo)."""
-    st.markdown(f'<div class="sv-kpis">{"".join(_kpi(*item) for item in items)}</div>', unsafe_allow_html=True)
+    """Tarjetas sueltas: cada item es (etiqueta, valor, subtítulo) o (etiqueta, valor, subtítulo, tag)."""
+    rendered = []
+    for item in items:
+        if len(item) == 3:
+            label, value, sub = item
+            rendered.append(_kpi(label, value, sub))
+        else:
+            label, value, sub, tag = item
+            rendered.append(_kpi(label, value, sub, tag=tag))
+    st.markdown(f'<div class="sv-kpis">{"".join(rendered)}</div>', unsafe_allow_html=True)
 
 
 def gap(px: int = 14) -> None:
@@ -134,8 +141,9 @@ def render_insights(items: list[dict]) -> None:
     if not items:
         return
     blocks = "".join(
-        f'<div class="sv-insight"><div class="ico">{it["icon"]}</div>'
-        f'<div><b>{esc(it["title"])}</b><span>{esc(it["text"])}</span></div></div>' for it in items)
+        f'<div class="sv-insight"><div><b>{esc(it["title"])}</b><span>{esc(it["text"])}</span></div></div>'
+        for it in items
+    )
     st.markdown(f'<div class="sv-insights">{blocks}</div>', unsafe_allow_html=True)
 
 
